@@ -1,4 +1,2 @@
-openai
-python-dotenv
-PyPDF2
-nltk
+psycopg2-binary
+pgvector

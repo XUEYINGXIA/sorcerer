@@ -38,4 +38,7 @@ wheels/
 nltk_data/
 
 # Jupyter Notebook
-.ipynb_checkpoints 
+.ipynb_checkpoints
+
+# Database volumes
+volumes/ 
