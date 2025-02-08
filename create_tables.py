@@ -12,60 +12,50 @@ def check_table_exists(cur, table_name):
     """, (table_name,))
     return cur.fetchone()[0]
 
-def create_vector_table():
+def create_tables():
     # Database connection parameters
     db_params = {
-        "dbname": "sorcerer",
-        "user": "postgres",
-        "password": "postgres",
-        "host": "localhost",
-        "port": "5432"
+        'dbname': 'sorcerer',
+        'user': 'postgres',
+        'password': 'postgres',
+        'host': 'localhost',
+        'port': '5432'
     }
-    
-    # Connect to PostgreSQL
+
+    # Connect to the database
     conn = psycopg2.connect(**db_params)
     conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
     cur = conn.cursor()
-    
+
     try:
-        # Enable the vector extension
+        # Create pgvector extension if it doesn't exist
         cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-        print("Vector extension enabled.")
-        
-        # Check if table exists
-        if check_table_exists(cur, 'text_embeddings'):
-            print("Table 'text_embeddings' already exists.")
-            return
-        
-        # Create the table for storing text embeddings
-        print("Creating 'text_embeddings' table...")
+
+        # Drop existing table if it exists
+        if check_table_exists(cur, 'book_embeddings'):
+            print("Dropping existing book_embeddings table...")
+            cur.execute("DROP TABLE book_embeddings;")
+            print("Existing table dropped.")
+
+        # Create table for book embeddings
+        print("Creating new book_embeddings table...")
         cur.execute("""
-            CREATE TABLE text_embeddings (
+            CREATE TABLE book_embeddings (
                 id SERIAL PRIMARY KEY,
-                book_name VARCHAR(255),
-                chunk_index INTEGER,
-                text_chunk TEXT,
-                embedding vector(1536)
+                book_name VARCHAR(255) NOT NULL,
+                embedding vector(1536),
+                tokens TEXT[],
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
         """)
-        
-        # Create an index for faster similarity searches
-        print("Creating vector similarity index...")
-        cur.execute("""
-            CREATE INDEX embedding_idx 
-            ON text_embeddings 
-            USING ivfflat (embedding vector_cosine_ops)
-            WITH (lists = 100);
-        """)
-        
-        print("Successfully created table and index!")
-        
+
+        print("Tables created successfully!")
+
     except Exception as e:
         print(f"An error occurred: {e}")
-    
     finally:
         cur.close()
         conn.close()
 
 if __name__ == "__main__":
-    create_vector_table() 
+    create_tables() 

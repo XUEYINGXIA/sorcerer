@@ -7,6 +7,8 @@ import re
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
+import psycopg2
+import numpy as np
 
 # Load environment variables
 load_dotenv()
@@ -20,6 +22,14 @@ class PDFTokenizer:
     def __init__(self):
         self.stop_words = set(stopwords.words('english'))
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        self.db_params = {
+            'dbname': 'sorcerer',
+            'user': 'postgres',
+            'password': 'postgres',
+            'host': 'localhost',
+            'port': '5432'
+        }
+        self.max_tokens_per_chunk = 4000  # Safe limit for OpenAI's API
     
     def read_pdf(self, pdf_path):
         """
@@ -66,28 +76,40 @@ class PDFTokenizer:
         print(f"Final token count after removing stop words: {len(tokens)}")
         return tokens
 
-    def create_embedding(self, tokens, chunk_size=8000):
+    def create_embedding(self, tokens):
         """
         Create embeddings for the tokens using OpenAI's API
-        Chunks the tokens if they exceed the model's token limit
+        Processes tokens in chunks to stay within API limits
         """
         print("Creating embeddings...")
-        # Join tokens back into text for embedding
-        text = " ".join(tokens)
+        embeddings = []
         
-        try:
-            # Create embedding
-            response = self.client.embeddings.create(
-                model="text-embedding-3-small",
-                input=text,
-                encoding_format="float"
-            )
-            embedding = response.data[0].embedding
-            print(f"Successfully created embedding of dimension {len(embedding)}")
-            return embedding
-        except Exception as e:
-            print(f"Error creating embedding: {e}")
+        # Process tokens in chunks
+        for i in range(0, len(tokens), self.max_tokens_per_chunk):
+            chunk = tokens[i:i + self.max_tokens_per_chunk]
+            chunk_text = " ".join(chunk)
+            print(f"Processing chunk {i//self.max_tokens_per_chunk + 1} of {(len(tokens)-1)//self.max_tokens_per_chunk + 1}")
+            
+            try:
+                response = self.client.embeddings.create(
+                    model="text-embedding-3-small",
+                    input=chunk_text,
+                    encoding_format="float"
+                )
+                chunk_embedding = response.data[0].embedding
+                embeddings.append(chunk_embedding)
+                print(f"Successfully created embedding for chunk {i//self.max_tokens_per_chunk + 1}")
+            except Exception as e:
+                print(f"Error creating embedding for chunk: {e}")
+                return None
+        
+        if not embeddings:
             return None
+            
+        # Average all chunk embeddings to get a single embedding for the entire text
+        final_embedding = [sum(x)/len(embeddings) for x in zip(*embeddings)]
+        print(f"Successfully created final embedding of dimension {len(final_embedding)}")
+        return final_embedding
 
     def process_pdf(self, pdf_path):
         """
@@ -112,6 +134,33 @@ class PDFTokenizer:
         print(f"Completed processing PDF: {pdf_path}")
         return tokens, embedding
 
+    def save_to_db(self, book_name, tokens, embedding):
+        """
+        Save the tokens and embedding to the database
+        """
+        print(f"Saving to database: {book_name}")
+        try:
+            conn = psycopg2.connect(**self.db_params)
+            cur = conn.cursor()
+            
+            # Convert embedding to proper format and tokens to array
+            embedding_list = list(embedding)
+            tokens_array = list(tokens)
+            
+            # Insert into database
+            cur.execute("""
+                INSERT INTO book_embeddings (book_name, embedding, tokens)
+                VALUES (%s, %s, %s)
+            """, (book_name, embedding_list, tokens_array))
+            
+            conn.commit()
+            print(f"Successfully saved {book_name} to database")
+        except Exception as e:
+            print(f"Error saving to database: {e}")
+        finally:
+            cur.close()
+            conn.close()
+
 def process_directory(directory_path):
     """
     Process all PDFs in a directory
@@ -124,23 +173,26 @@ def process_directory(directory_path):
     pdf_files = list(directory.glob('*.pdf'))
     print(f"Found {len(pdf_files)} PDF files")
     
-    for i, pdf_file in enumerate(pdf_files, 1):
-        print(f"\nProcessing file {i}/{len(pdf_files)}")
+    # Process only the first PDF file
+    if pdf_files:
+        pdf_file = pdf_files[0]
+        print(f"\nProcessing file: {pdf_file.name}")
         tokens, embedding = tokenizer.process_pdf(str(pdf_file))
         if tokens and embedding:
             pdf_results[pdf_file.name] = {
                 'tokens': tokens,
                 'embedding': embedding
             }
-            print(f"Successfully processed: {pdf_file.name}")
+            # Save to database
+            tokenizer.save_to_db(pdf_file.name, tokens, embedding)
+            print(f"Successfully processed and saved: {pdf_file.name}")
         else:
             print(f"Failed to process: {pdf_file.name}")
     
-    print(f"\nCompleted processing all files. Successfully processed: {len(pdf_results)}/{len(pdf_files)}")
     return pdf_results
 
 if __name__ == "__main__":
-    # Example usage
+    # Process PDFs from the test directory
     directory_path = "books/test"
     results = process_directory(directory_path)
     
