@@ -1,2 +1,9 @@
 psycopg2-binary
 pgvector
+openai
+python-dotenv
+numpy
+nltk
+PyPDF2
+tqdm
+watchdog
