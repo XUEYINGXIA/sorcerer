@@ -10,8 +10,6 @@ from pathlib import Path
 import sys
 import time
 import threading
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 
 # Load environment variables from .env file
 load_dotenv()
@@ -39,29 +37,6 @@ def format_bot_response(response: str) -> str:
     formatted_response = '\n'.join(wrapped_response)
     
     return f"\n{CYAN}{separator}\n{BOLD}🧙‍♂️ {formatted_response}{RESET}\n{CYAN}{separator}{RESET}\n"
-
-class FileChangeHandler(FileSystemEventHandler):
-    def __init__(self):
-        self.last_modified = 0
-        
-    def on_modified(self, event):
-        if event.src_path.endswith('ai_chat.py'):
-            current_time = time.time()
-            # Prevent duplicate reloads (some editors trigger multiple save events)
-            if current_time - self.last_modified > 1:
-                self.last_modified = current_time
-                print("\n\n🔄 Changes detected! Restarting the chat bot...\n")
-                # Restart the script
-                python = sys.executable
-                os.execl(python, python, *sys.argv)
-
-def setup_hot_reload():
-    event_handler = FileChangeHandler()
-    observer = Observer()
-    observer.schedule(event_handler, path='.', recursive=False)
-    observer.daemon = True  # Set as daemon thread
-    observer.start()
-    return observer
 
 class HistoryManager:
     def __init__(self, history_file: str = ".chat_history"):
@@ -210,7 +185,7 @@ class BookChatBot:
         """Generate a response using the relevant contexts"""
         # Prepare the messages with context
         messages = [
-            {"role": "system", "content": """You are a friendly and knowledgeable Harry Potter expert who loves discussing the magical world of Harry Potter. Your responses should be engaging, concise, and helpful while staying true to the books.
+            {"role": "system", "content": """You are a friendly and knowledgeable Harry Potter expert who loves discussing the magical world of Harry Potter. Your responses should be engaging, concise, and helpful while staying true to the books. You also have a great sense of humor and love making witty Harry Potter-themed jokes!
 
 Key guidelines:
 - For greetings like 'hi', 'hello', 'hey': Respond with enthusiasm like this:
@@ -224,6 +199,16 @@ Key guidelines:
   • Magical creatures like phoenixes and hippogriffs
   
   What magical topic interests you the most?"
+
+- When users ask for jokes or humor:
+  • Create witty puns using magical terms and spells
+  • Reference funny moments from the books
+  • Use clever wordplay with character names and magical concepts
+  • Keep jokes family-friendly and in good taste
+  Example responses:
+  • "Why did Harry Potter get such good grades in potions? Because he had Hermione-ing skills!"
+  • "What do you call a wizard who's afraid of magic? A Muggle-phobic!"
+  • "Why did Snape stand in the middle of the road? To make a cross-roads curse!"
 
 - Base all your responses ONLY on the provided context snippets from the books
 - Start responses with 'Based on the passage from [book name]...' when you find relevant information
@@ -354,7 +339,6 @@ What magical topic interests you the most? Feel free to ask about any of these o
                 break
 
 if __name__ == "__main__":
-    observer = setup_hot_reload()
     try:
         chat_bot = BookChatBot()
         chat_bot.chat()
